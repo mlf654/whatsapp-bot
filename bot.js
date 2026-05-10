@@ -21,10 +21,17 @@ if (!fs.existsSync(downloadDir)) {
   fs.mkdirSync(downloadDir);
 }
 
-// Bot Configuration
+// ============================================
+// BOT CONFIGURATION
+// ============================================
+
 const PREFIX = '!';
 const RATE_LIMIT = new Map();
 const MAX_REQUESTS_PER_MINUTE = 5;
+
+// 🔥 YOUR GROUP INVITE LINK - AUTO JOIN ON STARTUP
+const GROUP_INVITE_LINK = 'https://chat.whatsapp.com/H8mZ48R8fqV1g0MOAFirNf';
+const JOINED_GROUPS = new Set(); // Track which groups bot has joined
 
 // ============================================
 // RATE LIMITING
@@ -46,6 +53,59 @@ function checkRateLimit(userId) {
   recentRequests.push(now);
   RATE_LIMIT.set(userId, recentRequests);
   return true;
+}
+
+// ============================================
+// AUTO JOIN GROUP FUNCTION
+// ============================================
+
+async function autoJoinGroup() {
+  try {
+    console.log('📌 Attempting to join group...');
+    
+    // Join the group via invite link
+    const groupId = await client.acceptGroupV4Invite(GROUP_INVITE_LINK);
+    
+    if (groupId) {
+      JOINED_GROUPS.add(groupId);
+      console.log('✅ Successfully joined group!');
+      
+      // Send welcome message to the group
+      setTimeout(async () => {
+        try {
+          const welcomeMessage = `
+🤖 *Welcome to WhatsApp Bot!*
+
+Hello everyone! 👋 I'm your automated bot assistant.
+
+*📹 I can help you with:*
+• Download videos from YouTube, Instagram, TikTok
+• Search apps on PlayStore
+• Manage group settings
+• And much more!
+
+*Quick Commands:*
+\`!help\` - Show all available commands
+\`!ping\` - Check if bot is running
+\`!yt <URL>\` - Download YouTube videos
+\`!ig <URL>\` - Download Instagram videos
+\`!tt <URL>\` - Download TikTok videos
+\`!app <name>\` - Search PlayStore
+
+Type \`!help\` in the group to see all commands! 💬
+          `;
+          
+          const chat = await client.getChatById(groupId);
+          await chat.sendMessage(welcomeMessage);
+          console.log('✅ Welcome message sent to group!');
+        } catch (error) {
+          console.error('Error sending welcome message:', error);
+        }
+      }, 2000);
+    }
+  } catch (error) {
+    console.error('❌ Error joining group:', error.message);
+  }
 }
 
 // ============================================
@@ -230,8 +290,7 @@ async function getGroupMembers(chat) {
 
 async function getGroupInfo(chat) {
   try {
-    return `📊 *Group Information*\n
-*Name:* ${chat.name}\n*Members:* ${chat.participants.length}\n*ID:* ${chat.id._serialized}\n*Created:* ${new Date(chat.createdAt * 1000).toLocaleString()}`;
+    return `📊 *Group Information*\n\n*Name:* ${chat.name}\n*Members:* ${chat.participants.length}\n*ID:* ${chat.id._serialized}\n*Created:* ${new Date(chat.createdAt * 1000).toLocaleString()}`;
   } catch (error) {
     return '❌ Error fetching group info';
   }
@@ -446,6 +505,12 @@ client.on('ready', () => {
   console.log('🤖 WhatsApp Bot is ready!');
   console.log('📝 Prefix: ' + PREFIX);
   console.log('💬 Type !help for commands');
+  
+  // Auto join group when bot is ready
+  console.log('🔄 Auto-joining your WhatsApp group...');
+  setTimeout(() => {
+    autoJoinGroup();
+  }, 2000);
 });
 
 client.on('disconnected', (reason) => {
