@@ -1,25 +1,10 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const { Client, LocalAuth, MessageMedia, RemoteAuth } = require('whatsapp-web.js');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const readline = require('readline');
 require('dotenv').config();
-
-// Initialize WhatsApp Client
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  }
-});
-
-// Create downloads folder if it doesn't exist
-const downloadDir = path.join(__dirname, 'downloads');
-if (!fs.existsSync(downloadDir)) {
-  fs.mkdirSync(downloadDir);
-}
 
 // ============================================
 // BOT CONFIGURATION
@@ -31,7 +16,51 @@ const MAX_REQUESTS_PER_MINUTE = 5;
 
 // 🔥 YOUR GROUP INVITE LINK - AUTO JOIN ON STARTUP
 const GROUP_INVITE_LINK = 'https://chat.whatsapp.com/H8mZ48R8fqV1g0MOAFirNf';
-const JOINED_GROUPS = new Set(); // Track which groups bot has joined
+const JOINED_GROUPS = new Set();
+
+// Session file path
+const SESSION_FILE = path.join(__dirname, 'session.json');
+let SESSION_CODE = process.env.SESSION_CODE || '';
+
+// Create downloads folder
+const downloadDir = path.join(__dirname, 'downloads');
+if (!fs.existsSync(downloadDir)) {
+  fs.mkdirSync(downloadDir);
+}
+
+// ============================================
+// SESSION MANAGEMENT
+// ============================================
+
+function saveSessionCode(code) {
+  const sessionData = { code, createdAt: new Date() };
+  fs.writeFileSync(SESSION_FILE, JSON.stringify(sessionData, null, 2));
+  console.log('✅ Session code saved!');
+}
+
+function loadSessionCode() {
+  try {
+    if (fs.existsSync(SESSION_FILE)) {
+      const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+      return data.code;
+    }
+  } catch (error) {
+    console.error('Error loading session:', error);
+  }
+  return null;
+}
+
+// ============================================
+// INITIALIZE CLIENT WITH SESSION CODE
+// ============================================
+
+const client = new Client({
+  authStrategy: new LocalAuth(),
+  puppeteer: {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  }
+});
 
 // ============================================
 // RATE LIMITING
@@ -63,14 +92,12 @@ async function autoJoinGroup() {
   try {
     console.log('📌 Attempting to join group...');
     
-    // Join the group via invite link
     const groupId = await client.acceptGroupV4Invite(GROUP_INVITE_LINK);
     
     if (groupId) {
       JOINED_GROUPS.add(groupId);
       console.log('✅ Successfully joined group!');
       
-      // Send welcome message to the group
       setTimeout(async () => {
         try {
           const welcomeMessage = `
@@ -112,13 +139,11 @@ Type \`!help\` in the group to see all commands! 💬
 // VIDEO DOWNLOAD FUNCTIONS
 // ============================================
 
-// Download from YouTube
 async function downloadYouTube(url) {
   try {
     const videoId = Math.random().toString(36).substring(7);
     const outputPath = path.join(downloadDir, `${videoId}.mp4`);
     
-    // Using youtube-dl via command line
     const command = `yt-dlp -f best[ext=mp4] "${url}" -o "${outputPath}"`;
     execSync(command, { stdio: 'pipe' });
     
@@ -131,7 +156,6 @@ async function downloadYouTube(url) {
   return null;
 }
 
-// Download from Instagram
 async function downloadInstagram(url) {
   try {
     const response = await axios.get(`https://api.saveig.app/get_json`, {
@@ -154,7 +178,6 @@ async function downloadInstagram(url) {
   return null;
 }
 
-// Download from TikTok
 async function downloadTikTok(url) {
   try {
     const videoId = Math.random().toString(36).substring(7);
@@ -178,7 +201,6 @@ async function downloadTikTok(url) {
 
 async function searchPlayStore(appName) {
   try {
-    // Using Google Play API alternative
     const response = await axios.get(`https://play.google.com/store/search`, {
       params: { q: appName },
       headers: {
@@ -186,7 +208,6 @@ async function searchPlayStore(appName) {
       }
     });
     
-    // Parse response (simplified)
     return {
       status: 'success',
       message: `Search results for "${appName}" - Visit Google Play Store to download`,
@@ -198,30 +219,12 @@ async function searchPlayStore(appName) {
   }
 }
 
-async function getAppInfo(packageName) {
-  try {
-    // Get app from Play Store
-    const url = `https://play.google.com/store/apps/details?id=${packageName}`;
-    
-    return {
-      status: 'success',
-      app: packageName,
-      playStoreUrl: url,
-      message: 'Visit the link above to download'
-    };
-  } catch (error) {
-    console.error('App info error:', error);
-    return null;
-  }
-}
-
 // ============================================
 // GROUP MANAGEMENT FUNCTIONS
 // ============================================
 
 async function addMember(chat, phoneNumber) {
   try {
-    // WhatsApp Web API limitation - manual instruction
     return `To add ${phoneNumber}, please manually add them or use admin panel`;
   } catch (error) {
     return 'Error adding member';
@@ -305,14 +308,12 @@ async function handleCommand(message, command, args) {
   const contact = await message.getContact();
   const userId = contact.id._serialized;
 
-  // Check rate limit
   if (!checkRateLimit(userId)) {
     return message.reply('⏱️ Too many requests! Please wait a moment.');
   }
 
   try {
     switch (command) {
-      // ===== VIDEO DOWNLOADS =====
       case 'yt':
         if (!args[0]) return message.reply('❌ Please provide a YouTube URL\n\nUsage: `!yt <URL>`');
         message.reply('⏳ Downloading YouTube video...');
@@ -352,7 +353,6 @@ async function handleCommand(message, command, args) {
         }
         break;
 
-      // ===== PLAYSTORE =====
       case 'apk':
       case 'app':
         if (!args[0]) return message.reply('❌ Please provide an app name\n\nUsage: `!app <appName>`');
@@ -365,7 +365,6 @@ async function handleCommand(message, command, args) {
         }
         break;
 
-      // ===== GROUP MANAGEMENT =====
       case 'add':
         if (!chat.isGroup) return message.reply('❌ This command only works in groups');
         if (!args[0]) return message.reply('❌ Please provide a phone number\n\nUsage: `!add +1234567890`');
@@ -430,7 +429,6 @@ async function handleCommand(message, command, args) {
         await chat.leave();
         break;
 
-      // ===== UTILITIES =====
       case 'ping':
         message.reply('🏓 *Pong!* Bot is running');
         break;
@@ -489,16 +487,27 @@ client.on('message', async (message) => {
 });
 
 // ============================================
-// CLIENT EVENTS
+// CLIENT EVENTS - SESSION CODE PAIRING
 // ============================================
 
 client.on('qr', (qr) => {
-  console.log('\n📱 Scan this QR code with WhatsApp:');
-  qrcode.generate(qr, { small: true });
+  console.log('\n📱 QR Code for pairing:');
+  console.log(qr);
 });
 
-client.on('authenticated', () => {
+client.on('authenticated', (session) => {
   console.log('✅ Bot authenticated!');
+  if (session && session.sessionInfo && session.sessionInfo.v) {
+    const sessionCode = session.sessionInfo.v;
+    saveSessionCode(sessionCode);
+    console.log(`\n🔐 Your Session Code: ${sessionCode}`);
+    console.log('💾 Session code saved to session.json\n');
+  }
+});
+
+client.on('auth_failure', () => {
+  console.log('❌ Authentication failed! Please check your session code.');
+  process.exit(1);
 });
 
 client.on('ready', () => {
@@ -506,7 +515,6 @@ client.on('ready', () => {
   console.log('📝 Prefix: ' + PREFIX);
   console.log('💬 Type !help for commands');
   
-  // Auto join group when bot is ready
   console.log('🔄 Auto-joining your WhatsApp group...');
   setTimeout(() => {
     autoJoinGroup();
@@ -521,6 +529,10 @@ client.on('disconnected', (reason) => {
 // ============================================
 // STARTUP
 // ============================================
+
+console.log('🚀 Starting WhatsApp Bot...\n');
+console.log('📌 GROUP LINK:', GROUP_INVITE_LINK);
+console.log('\n🔄 Initializing bot connection...\n');
 
 client.initialize();
 
