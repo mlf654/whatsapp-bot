@@ -43,7 +43,7 @@ A powerful WhatsApp bot with group management, video download, and PlayStore app
 
 1. **Clone and setup**
 ```bash
-git clone https://github.com/yourusername/whatsapp-bot.git
+git clone https://github.com/mlf654/whatsapp-bot.git
 cd whatsapp-bot
 npm install
 ```
