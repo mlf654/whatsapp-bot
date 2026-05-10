@@ -1,4 +1,4 @@
-const { Client, LocalAuth, MessageMedia, RemoteAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
@@ -18,7 +18,7 @@ const MAX_REQUESTS_PER_MINUTE = 5;
 const GROUP_INVITE_LINK = 'https://chat.whatsapp.com/H8mZ48R8fqV1g0MOAFirNf';
 const JOINED_GROUPS = new Set();
 
-// Session file path
+// Session file and code path
 const SESSION_FILE = path.join(__dirname, 'session.json');
 let SESSION_CODE = process.env.SESSION_CODE || '';
 
@@ -29,19 +29,21 @@ if (!fs.existsSync(downloadDir)) {
 }
 
 // ============================================
-// SESSION MANAGEMENT
+// SESSION CODE MANAGEMENT - NO QR CODE
 // ============================================
-
-function saveSessionCode(code) {
-  const sessionData = { code, createdAt: new Date() };
-  fs.writeFileSync(SESSION_FILE, JSON.stringify(sessionData, null, 2));
-  console.log('✅ Session code saved!');
-}
 
 function loadSessionCode() {
   try {
+    // Try to load from environment variable first
+    if (process.env.SESSION_CODE) {
+      console.log('✅ Using SESSION_CODE from environment variable');
+      return process.env.SESSION_CODE;
+    }
+
+    // Try to load from session.json
     if (fs.existsSync(SESSION_FILE)) {
       const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+      console.log('✅ Using SESSION_CODE from session.json');
       return data.code;
     }
   } catch (error) {
@@ -50,8 +52,29 @@ function loadSessionCode() {
   return null;
 }
 
+function saveSessionCode(code) {
+  const sessionData = { code, createdAt: new Date().toISOString() };
+  fs.writeFileSync(SESSION_FILE, JSON.stringify(sessionData, null, 2));
+  console.log('\n🔐 Session code saved to session.json');
+  console.log(`📌 Your Session Code: ${code}\n`);
+}
+
+function promptForSessionCode() {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    rl.question('\n🔐 Enter your WhatsApp Session Code:\n> ', (code) => {
+      rl.close();
+      resolve(code.trim());
+    });
+  });
+}
+
 // ============================================
-// INITIALIZE CLIENT WITH SESSION CODE
+// INITIALIZE CLIENT
 // ============================================
 
 const client = new Client({
@@ -487,26 +510,22 @@ client.on('message', async (message) => {
 });
 
 // ============================================
-// CLIENT EVENTS - SESSION CODE PAIRING
+// CLIENT EVENTS - SESSION CODE ONLY (NO QR)
 // ============================================
 
-client.on('qr', (qr) => {
-  console.log('\n📱 QR Code for pairing:');
-  console.log(qr);
-});
-
 client.on('authenticated', (session) => {
-  console.log('✅ Bot authenticated!');
+  console.log('✅ Bot authenticated successfully!');
+  
+  // Extract and save session code
   if (session && session.sessionInfo && session.sessionInfo.v) {
     const sessionCode = session.sessionInfo.v;
     saveSessionCode(sessionCode);
-    console.log(`\n🔐 Your Session Code: ${sessionCode}`);
-    console.log('💾 Session code saved to session.json\n');
   }
 });
 
-client.on('auth_failure', () => {
-  console.log('❌ Authentication failed! Please check your session code.');
+client.on('auth_failure', (msg) => {
+  console.log('❌ Authentication failed!');
+  console.log('Error:', msg);
   process.exit(1);
 });
 
@@ -515,7 +534,7 @@ client.on('ready', () => {
   console.log('📝 Prefix: ' + PREFIX);
   console.log('💬 Type !help for commands');
   
-  console.log('🔄 Auto-joining your WhatsApp group...');
+  console.log('\n🔄 Auto-joining your WhatsApp group...');
   setTimeout(() => {
     autoJoinGroup();
   }, 2000);
@@ -527,14 +546,47 @@ client.on('disconnected', (reason) => {
 });
 
 // ============================================
-// STARTUP
+// STARTUP - SESSION CODE LINKING
 // ============================================
 
-console.log('🚀 Starting WhatsApp Bot...\n');
-console.log('📌 GROUP LINK:', GROUP_INVITE_LINK);
-console.log('\n🔄 Initializing bot connection...\n');
+async function startup() {
+  console.log('🚀 Starting WhatsApp Bot...\n');
+  console.log('📌 GROUP LINK:', GROUP_INVITE_LINK);
+  console.log('\n═══════════════════════════════════════════');
+  console.log('🔐 SESSION CODE AUTHENTICATION');
+  console.log('═══════════════════════════════════════════\n');
 
-client.initialize();
+  // Try to load existing session code
+  let sessionCode = loadSessionCode();
+
+  // If no session code found, prompt user
+  if (!sessionCode) {
+    console.log('No session code found.\n');
+    console.log('To get your session code:');
+    console.log('1. Go to WhatsApp Settings');
+    console.log('2. Click "Linked Devices"');
+    console.log('3. Click "Link a device"');
+    console.log('4. Copy the CODE displayed\n');
+    
+    sessionCode = await promptForSessionCode();
+
+    if (!sessionCode) {
+      console.log('❌ Session code is required!');
+      process.exit(1);
+    }
+
+    // Save for future use
+    saveSessionCode(sessionCode);
+  }
+
+  console.log('🔄 Connecting with session code...\n');
+  
+  // Initialize client
+  client.initialize();
+}
+
+// Run startup
+startup().catch(console.error);
 
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down bot...');
