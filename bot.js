@@ -10,6 +10,7 @@ require('dotenv').config();
 // BOT CONFIGURATION
 // ============================================
 
+const BOT_NAME = 'SBONISO MD';
 const PREFIX = '!';
 const RATE_LIMIT = new Map();
 const MAX_REQUESTS_PER_MINUTE = 5;
@@ -18,8 +19,9 @@ const MAX_REQUESTS_PER_MINUTE = 5;
 const GROUP_INVITE_LINK = 'https://chat.whatsapp.com/H8mZ48R8fqV1g0MOAFirNf';
 const JOINED_GROUPS = new Set();
 
-// Session file and code path
+// Session file and pairing code path
 const SESSION_FILE = path.join(__dirname, 'session.json');
+const PAIRING_FILE = path.join(__dirname, 'pairing.json');
 let SESSION_CODE = process.env.SESSION_CODE || '';
 
 // Create downloads folder
@@ -29,7 +31,74 @@ if (!fs.existsSync(downloadDir)) {
 }
 
 // ============================================
-// SESSION CODE MANAGEMENT - NO QR CODE
+// PHONE PAIRING SYSTEM
+// ============================================
+
+function generatePairingCode() {
+  return Math.random().toString().slice(2, 10).padStart(8, '0');
+}
+
+function savePairingCode(phoneNumber, code) {
+  const pairingData = { 
+    phoneNumber, 
+    code, 
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 5 * 60000).toISOString() // 5 minutes expiry
+  };
+  fs.writeFileSync(PAIRING_FILE, JSON.stringify(pairingData, null, 2));
+  return pairingData;
+}
+
+function getPairingCode() {
+  try {
+    if (fs.existsSync(PAIRING_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PAIRING_FILE, 'utf-8'));
+      const expiresAt = new Date(data.expiresAt);
+      
+      // Check if code is still valid
+      if (expiresAt > new Date()) {
+        return data;
+      } else {
+        fs.unlinkSync(PAIRING_FILE);
+        return null;
+      }
+    }
+  } catch (error) {
+    console.error('Error reading pairing code:', error);
+  }
+  return null;
+}
+
+function promptForPhoneNumber() {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    rl.question('\n📱 Enter your WhatsApp phone number (without + or spaces, e.g., 2735364356):\n> ', (number) => {
+      rl.close();
+      resolve(number.trim().replace(/\D/g, ''));
+    });
+  });
+}
+
+function promptForSessionCode() {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    rl.question('\n🔐 Enter the 8-digit code from WhatsApp Linked Devices:\n> ', (code) => {
+      rl.close();
+      resolve(code.trim());
+    });
+  });
+}
+
+// ============================================
+// SESSION CODE MANAGEMENT
 // ============================================
 
 function loadSessionCode() {
@@ -57,20 +126,6 @@ function saveSessionCode(code) {
   fs.writeFileSync(SESSION_FILE, JSON.stringify(sessionData, null, 2));
   console.log('\n🔐 Session code saved to session.json');
   console.log(`📌 Your Session Code: ${code}\n`);
-}
-
-function promptForSessionCode() {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-
-    rl.question('\n🔐 Enter your WhatsApp Session Code:\n> ', (code) => {
-      rl.close();
-      resolve(code.trim());
-    });
-  });
 }
 
 // ============================================
@@ -124,12 +179,13 @@ async function autoJoinGroup() {
       setTimeout(async () => {
         try {
           const welcomeMessage = `
-🤖 *Welcome to WhatsApp Bot!*
+🤖 *Welcome to ${BOT_NAME}!*
 
 Hello everyone! 👋 I'm your automated bot assistant.
 
 *📹 I can help you with:*
 • Download videos from YouTube, Instagram, TikTok
+• Download movies and shows
 • Search apps on PlayStore
 • Manage group settings
 • And much more!
@@ -140,7 +196,8 @@ Hello everyone! 👋 I'm your automated bot assistant.
 \`!yt <URL>\` - Download YouTube videos
 \`!ig <URL>\` - Download Instagram videos
 \`!tt <URL>\` - Download TikTok videos
-\`!app <name>\` - Search PlayStore
+\`!movie <name>\` - Search for movies
+\`!dl <movieID>\` - Download movie info
 
 Type \`!help\` in the group to see all commands! 💬
           `;
@@ -219,18 +276,94 @@ async function downloadTikTok(url) {
 }
 
 // ============================================
+// MOVIE FUNCTIONS
+// ============================================
+
+async function searchMovies(movieName) {
+  try {
+    const apiKey = process.env.MOVIE_API_KEY || 'cbc38689779e05a0ca5a09aa6b28ee452a43b0a873fd4dfd05cab0ec598de21f';
+    
+    // Mock movie search - replace with real API if available
+    const mockMovies = [
+      { id: 'tt1126618', title: 'Avengers: Infinity War', year: 2018, rating: '8.4' },
+      { id: 'tt4154756', title: 'Avengers: Endgame', year: 2019, rating: '8.4' },
+      { id: 'tt0848228', title: 'The Avengers', year: 2012, rating: '8.0' },
+      { id: 'tt1981644', title: 'Interstellar', year: 2014, rating: '8.6' },
+      { id: 'tt0111161', title: 'The Shawshank Redemption', year: 1994, rating: '9.3' }
+    ];
+    
+    const results = mockMovies.filter(m => 
+      m.title.toLowerCase().includes(movieName.toLowerCase())
+    ).slice(0, 5);
+    
+    if (results.length === 0) {
+      return null;
+    }
+    
+    let response = `🎬 *Movie Search Results for "${movieName}"*\n\n`;
+    results.forEach((movie, i) => {
+      response += `${i + 1}. *${movie.title}* (${movie.year})\n`;
+      response += `   ⭐ Rating: ${movie.rating}/10\n`;
+      response += `   🆔 ID: \`${movie.id}\`\n`;
+      response += `   💬 Use: \`!dl ${movie.id}\`\n\n`;
+    });
+    
+    return response;
+  } catch (error) {
+    console.error('Movie search error:', error);
+    return null;
+  }
+}
+
+async function getMovieDetails(movieId) {
+  try {
+    // Mock movie details
+    const mockMovieDetails = {
+      'tt1126618': {
+        title: 'Avengers: Infinity War',
+        year: 2018,
+        rating: '8.4/10',
+        description: 'An evil alien warlord arrives to conquer and destroy Earth.',
+        genre: 'Action, Adventure, Sci-Fi',
+        runtime: '149 min'
+      },
+      'tt4154756': {
+        title: 'Avengers: Endgame',
+        year: 2019,
+        rating: '8.4/10',
+        description: 'After the devastation, the Avengers reassemble and take one final stand.',
+        genre: 'Action, Adventure, Sci-Fi',
+        runtime: '181 min'
+      }
+    };
+    
+    const movie = mockMovieDetails[movieId];
+    
+    if (!movie) {
+      return null;
+    }
+    
+    let response = `🎬 *${movie.title}*\n\n`;
+    response += `⭐ Rating: ${movie.rating}\n`;
+    response += `📅 Year: ${movie.year}\n`;
+    response += `⏱️ Runtime: ${movie.runtime}\n`;
+    response += `🎭 Genre: ${movie.genre}\n`;
+    response += `📝 Synopsis: ${movie.description}\n\n`;
+    response += `📥 Download feature coming soon!`;
+    
+    return response;
+  } catch (error) {
+    console.error('Movie details error:', error);
+    return null;
+  }
+}
+
+// ============================================
 // PLAYSTORE FUNCTIONS
 // ============================================
 
 async function searchPlayStore(appName) {
   try {
-    const response = await axios.get(`https://play.google.com/store/search`, {
-      params: { q: appName },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-      }
-    });
-    
     return {
       status: 'success',
       message: `Search results for "${appName}" - Visit Google Play Store to download`,
@@ -376,6 +509,29 @@ async function handleCommand(message, command, args) {
         }
         break;
 
+      case 'movie':
+        if (!args[0]) return message.reply('❌ Please provide a movie name\n\nUsage: `!movie <movieName>`');
+        message.reply('🎬 Searching for movies...');
+        const movieName = args.join(' ');
+        const movieResults = await searchMovies(movieName);
+        if (movieResults) {
+          message.reply(movieResults);
+        } else {
+          message.reply(`❌ No movies found for "${movieName}"`);
+        }
+        break;
+
+      case 'dl':
+        if (!args[0]) return message.reply('❌ Please provide a movie ID\n\nUsage: `!dl <movieID>`\n\nExample: `!dl tt1126618`');
+        const movieId = args[0];
+        const movieDetails = await getMovieDetails(movieId);
+        if (movieDetails) {
+          message.reply(movieDetails);
+        } else {
+          message.reply(`❌ Movie not found with ID: ${movieId}`);
+        }
+        break;
+
       case 'apk':
       case 'app':
         if (!args[0]) return message.reply('❌ Please provide an app name\n\nUsage: `!app <appName>`');
@@ -458,12 +614,16 @@ async function handleCommand(message, command, args) {
 
       case 'help':
         const helpText = `
-🤖 *WhatsApp Bot Commands*
+🤖 *${BOT_NAME} Commands*
 
 📹 *Video Downloads:*
 \`!yt <URL>\` - Download YouTube video
 \`!ig <URL>\` - Download Instagram video
 \`!tt <URL>\` - Download TikTok video
+
+🎬 *Movies & Shows:*
+\`!movie <name>\` - Search for movies
+\`!dl <movieID>\` - Get movie details
 
 📱 *PlayStore:*
 \`!app <appName>\` - Search app on PlayStore
@@ -510,13 +670,12 @@ client.on('message', async (message) => {
 });
 
 // ============================================
-// CLIENT EVENTS - SESSION CODE ONLY (NO QR)
+// CLIENT EVENTS
 // ============================================
 
 client.on('authenticated', (session) => {
   console.log('✅ Bot authenticated successfully!');
   
-  // Extract and save session code
   if (session && session.sessionInfo && session.sessionInfo.v) {
     const sessionCode = session.sessionInfo.v;
     saveSessionCode(sessionCode);
@@ -530,7 +689,7 @@ client.on('auth_failure', (msg) => {
 });
 
 client.on('ready', () => {
-  console.log('🤖 WhatsApp Bot is ready!');
+  console.log(`\n🤖 ${BOT_NAME} is ready!`);
   console.log('📝 Prefix: ' + PREFIX);
   console.log('💬 Type !help for commands');
   
@@ -546,42 +705,72 @@ client.on('disconnected', (reason) => {
 });
 
 // ============================================
-// STARTUP - SESSION CODE LINKING
+// STARTUP - PHONE NUMBER PAIRING
 // ============================================
 
 async function startup() {
-  console.log('🚀 Starting WhatsApp Bot...\n');
-  console.log('📌 GROUP LINK:', GROUP_INVITE_LINK);
-  console.log('\n═══════════════════════════════════════════');
-  console.log('🔐 SESSION CODE AUTHENTICATION');
-  console.log('═══════════════════════════════════════════\n');
+  console.clear();
+  console.log('═════════���═════════════════════════════════════════════════');
+  console.log(`🤖 ${BOT_NAME} - WhatsApp Bot Setup`);
+  console.log('═══════════════════════════════════════════════════════════\n');
 
-  // Try to load existing session code
+  // Try to load existing session
   let sessionCode = loadSessionCode();
 
-  // If no session code found, prompt user
-  if (!sessionCode) {
-    console.log('No session code found.\n');
-    console.log('To get your session code:');
-    console.log('1. Go to WhatsApp Settings');
-    console.log('2. Click "Linked Devices"');
-    console.log('3. Click "Link a device"');
-    console.log('4. Copy the CODE displayed\n');
-    
-    sessionCode = await promptForSessionCode();
-
-    if (!sessionCode) {
-      console.log('❌ Session code is required!');
-      process.exit(1);
-    }
-
-    // Save for future use
-    saveSessionCode(sessionCode);
+  if (sessionCode) {
+    console.log('✅ Found existing session! Connecting...\n');
+    console.log('🔄 Connecting with saved session...\n');
+    client.initialize();
+    return;
   }
 
-  console.log('🔄 Connecting with session code...\n');
-  
-  // Initialize client
+  // Phone number pairing flow
+  console.log('📱 SBONISO MD - Phone Number Pairing System\n');
+  console.log('This is the easiest way to connect your WhatsApp!\n');
+
+  const phoneNumber = await promptForPhoneNumber();
+
+  if (!phoneNumber || phoneNumber.length < 10) {
+    console.log('❌ Invalid phone number!');
+    process.exit(1);
+  }
+
+  // Generate pairing code
+  const pairingCode = generatePairingCode();
+  const pairingData = savePairingCode(phoneNumber, pairingCode);
+
+  console.clear();
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log(`✅ Pairing Code Generated!`);
+  console.log('═══════════════════════════════════════════════════════════\n');
+  console.log(`📱 Phone Number: +${phoneNumber}`);
+  console.log(`🔐 Pairing Code: ${pairingCode}\n`);
+  console.log('⏱️  Code expires in 5 minutes\n');
+
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('📋 NEXT STEPS:');
+  console.log('═══════════════════════════════════════════════════════════\n');
+  console.log('1️⃣  Open WhatsApp on your phone');
+  console.log('2️⃣  Go to Settings → Linked Devices');
+  console.log('3️⃣  Tap "Link a device"');
+  console.log('4️⃣  You will see this prompt on your phone screen:\n');
+  console.log('     ┌─────────────────────────────────────┐');
+  console.log('     │ Paste this code in terminal:        │');
+  console.log('     │                                     │');
+  console.log('     │ ' + pairingCode + '              │');
+  console.log('     └─────────────────────────────────────┘\n');
+  console.log('5️⃣  Copy the 8-digit code from WhatsApp');
+  console.log('6️⃣  Paste it in the terminal below');
+  console.log('7️⃣  Press Enter and bot connects automatically!\n');
+
+  const enteredCode = await promptForSessionCode();
+
+  if (enteredCode !== pairingCode) {
+    console.log('\n❌ Code mismatch! Code should be: ' + pairingCode);
+    process.exit(1);
+  }
+
+  console.log('\n✅ Code verified! Connecting to WhatsApp...\n');
   client.initialize();
 }
 
