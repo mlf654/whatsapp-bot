@@ -13,6 +13,7 @@ const client = new Client({
   }
 });
 
+const BOT_NAME = 'SBONISO MD';
 const PREFIX = '!';
 
 // ============================================
@@ -56,6 +57,10 @@ function updateStats(userId, chatId) {
 
 function eval_math(expression) {
   try {
+    // Validate expression to prevent injection
+    if (!/^[0-9+\-*/().\s]+$/.test(expression)) {
+      return 'Invalid expression - only numbers and basic operators allowed';
+    }
     return Function(`'use strict'; return (${expression})`)();
   } catch (e) {
     return 'Invalid expression';
@@ -203,6 +208,7 @@ async function handleCommand(message, command, args) {
       // ===== DICE ROLL =====
       case 'dice':
         const sides = parseInt(args[0]) || 6;
+        if (sides < 1) return message.reply('❌ Dice must have at least 1 side');
         const roll = Math.floor(Math.random() * sides) + 1;
         message.reply(`🎲 You rolled a **${roll}** on a ${sides}-sided die`);
         break;
@@ -260,7 +266,7 @@ async function handleCommand(message, command, args) {
 
       // ===== ABOUT BOT =====
       case 'about':
-        message.reply(`🤖 *Advanced WhatsApp Bot*\n\n*Version:* 2.0\n*Features:* Statistics, Reminders, Polls, Quotes, Calculator\n*Status:* Active\n*Developer:* Anonymous`);
+        message.reply(`🤖 *${BOT_NAME}*\n\n*Version:* 2.0\n*Features:* Statistics, Reminders, Polls, Quotes, Calculator\n*Status:* Active\n*Developer:* Sboniso`);
         break;
 
       default:
@@ -307,7 +313,7 @@ client.on('authenticated', () => {
 });
 
 client.on('ready', () => {
-  console.log('🤖 Advanced WhatsApp Bot is ready!');
+  console.log(`🤖 ${BOT_NAME} is ready!`);
   console.log('📝 Prefix: ' + PREFIX);
 });
 
